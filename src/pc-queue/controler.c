@@ -210,14 +210,23 @@ static void controler_dequeue_callback(controler * this)
 	}
 	else if(this->dequeue_state == 1)
 	{
-		this->queue = c_linked_list_delete_with_release(this->queue, glass_info_finalize);
-		this->dequeue_state = 2;
+		if(this->queue != NULL)
+		{
+			char current_time[20];
+			printf("%s - dequeue glass -> %s\n", controler_get_current_time_date(current_time), glass_info_get_vehicle_number(c_linked_list_get_data(this->queue)));
+
+			this->queue = c_linked_list_delete_with_release(this->queue, glass_info_finalize);
+			this->dequeue_state = 2;
+		}
+		else
+		{
+			this->dequeue_state = 3;
+			char current_time[20];
+			printf("%s - dequeue request on empty queue", controler_get_current_time_date(current_time));
+		}
 	}
 	else if(this->dequeue_state == 2)
 	{
-		char current_time[20];
-		printf("%s - dequeue glass -> %s\n", controler_get_current_time_date(current_time), glass_info_get_vehicle_number(c_linked_list_get_data(this->queue)));
-
 		controler_save_to_file(this, QUEUE_FILE_PATH);
 		controler_synchronize_visu_queue(this);
 
@@ -246,15 +255,16 @@ static void controler_delete_callback(controler * this)
 	{
 		glass_info * glass = model_read_glass_info(this->s7lib_ref, 0);
 
-		if(glass != NULL)
+		if(glass != NULL && this->queue != NULL)
 		{
 			c_linked_list * glass_for_delete = controler_delete_glass_in_queue(this->queue, glass);
 
 			if (glass_for_delete != NULL)
 			{
-				this->queue = c_linked_list_find_first(c_linked_list_delete(glass_for_delete));
 				char current_time[20];
 				printf("%s - delete glass -> %s\n", controler_get_current_time_date(current_time), glass_info_get_vehicle_number(glass));
+
+				this->queue = c_linked_list_find_first(c_linked_list_delete(glass_for_delete));
 				this->delete_state = 2;
 			}
 			else
