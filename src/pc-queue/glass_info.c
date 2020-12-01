@@ -2,17 +2,6 @@
 #include <s7lib_parser.h>
 
 
-struct _glass_info_
-{
-	char job_number[JOB_NUMBER_LENGTH];
-	char calloff_date_time[CALLOFF_DATE_TIME_LENGTH];
-	char vehicle_number[VEHICLE_NUMBER_LENGTH];
-	char rear_window_type[REAR_WINDOW_TYPE_LENGTH];
-	char vehicle_model;
-	uint32_t id;
-	char ProductionSeq[PRODUCTION_SEQ_LENGTH];
-};
-
 
 glass_info * glass_info_new(char *job_number,
 							char * calloff_date_time,
@@ -71,10 +60,6 @@ char * glass_info_get_production_num(glass_info * this)
 	return this->ProductionSeq;
 }
 
-size_t glass_info_get_sizeof()
-{
-	return sizeof(glass_info);
-}
 
 void glass_info_finalize(void * this)
 {

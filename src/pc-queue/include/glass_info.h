@@ -13,6 +13,17 @@
 struct _glass_info_;
 typedef struct _glass_info_ glass_info;
 
+struct _glass_info_
+{
+	char job_number[JOB_NUMBER_LENGTH];
+	char calloff_date_time[CALLOFF_DATE_TIME_LENGTH];
+	char vehicle_number[VEHICLE_NUMBER_LENGTH];
+	char rear_window_type[REAR_WINDOW_TYPE_LENGTH];
+	char vehicle_model;
+	uint32_t id;
+	char ProductionSeq[PRODUCTION_SEQ_LENGTH];
+};
+
 
 glass_info * glass_info_new(char *, char *, char *, char*, char, uint32_t, char *);
 char * glass_info_fet_job_number(glass_info *);

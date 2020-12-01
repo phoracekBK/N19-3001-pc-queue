@@ -3,36 +3,44 @@
 #include <time.h>
 #include <stdio.h>
 
-struct _controler_
-{
-	s7lib * s7lib_ref;
-	c_linked_list * queue;
 
-	uint8_t enqueue_state;
-	uint8_t priority_enqueue_state;
-	uint8_t dequeue_state;
-	uint8_t delete_state;
-	uint8_t reload_visu_state;
+struct _queue_
+{
+	glass_info * array;
+	uint16_t size;
 };
 
 
 
+
+typedef struct _queue_ queue;
+
+
+struct _controler_
+{
+	s7lib * s7lib_ref;
+
+	queue * glass_list;
+	visu * visual_queue;
+
+	uint8_t state;
+	uint8_t state_last_cycle;
+};
+
+
+
+
+
 static void controler_init(controler *);
-static bool controler_synchronize_visu_queue(controler *);
-static uint8_t * controler_generate_visu_queue(controler *);
-static uint8_t * controler_copy_first_n_glass(c_linked_list *, uint8_t *, int);
-static c_linked_list * controler_delete_glass_in_queue(c_linked_list *, glass_info *);
-static c_linked_list * controler_read_file(FILE *);
-static c_linked_list * controler_load_from_file(controler *, char *);
+static queue * controler_read_file(FILE *);
+static queue * controler_load_from_file(controler *, char *);
 static bool controler_save_to_file(controler *, char *);
+static queue * controler_enqueue(queue * glass_list, glass_info * glass_record);
+static visu * sync_visu(queue * glass_list, visu * visual_queue);
+static queue * controler_priority_enqueue(queue * glass_list, glass_info * glass_record);
+static queue * controler_dequeue(queue * glass_list);
+static void controler_work_sequence_callback(controler *);
 
-
-static void controler_enqueue_callback(controler *);
-static void controler_priority_enqueue_callback(controler *);
-static void controler_dequeue_callback(controler *);
-static void controler_delete_callback(controler *);
-static void controler_reload_visu_callback(controler *);
-static char * controler_get_current_time_date(char *);
 
 
 
@@ -42,316 +50,287 @@ controler * controler_new(char * ip_address, int rack, int slot, int db_index)
 
 	this->s7lib_ref = s7lib_new(ip_address, rack, slot, db_index);
 
-	this->queue = controler_load_from_file(this, QUEUE_FILE_PATH);
+	this->glass_list = controler_load_from_file(this, QUEUE_FILE_PATH);
+	this->visual_queue = malloc(sizeof(visu));
+	this->visual_queue = sync_visu(this->glass_list, this->visual_queue);
 
-	this->enqueue_state = 0;
-	this->priority_enqueue_state = 0;
-	this->dequeue_state = 0;
-	this->delete_state = 0;
-	this->reload_visu_state = 0;
+	this->state = 0;
+	this->state_last_cycle = 255;
 
 	return this;
 }
 
 
-static c_linked_list * controler_read_file(FILE * input)
+static queue * controler_read_file(FILE * input)
 {
-	void * buffer = malloc(glass_info_get_sizeof());
+	fseek(input, 0L, SEEK_END);
+	uint32_t file_size = ftell(input);
+	fseek(input, 0L, SEEK_SET);
 
-	if(fread(buffer, glass_info_get_sizeof(), 1, input) > 0)
+	queue * glass_list = malloc(sizeof(queue));
+
+	if(file_size > 0)
 	{
-		return c_linked_list_add_as_previous(controler_read_file(input), buffer);
+		glass_list->array = malloc(file_size);
+		glass_list->size = file_size / sizeof(glass_info);
+
+		fread(glass_list->array, 1, file_size, input);
 	}
 	else
 	{
-		free(buffer);
-		return NULL;
+		glass_list->array = NULL;
+		glass_list->size = 0;
 	}
+
+	return glass_list;
 }
 
 
-static c_linked_list * controler_load_from_file(controler * this, char * address)
+static queue * controler_load_from_file(controler * this, char * address)
 {
 	FILE * input = fopen(address, "r");
 
 	if(input != NULL)
 	{
-		c_linked_list * queue = controler_read_file(input);
+		queue * glass_list = controler_read_file(input);
 		fclose(input);
 
-		return queue;
+		return glass_list;
 	}
-
-	return NULL;
-}
-
-static void controler_write_file(FILE * output, c_linked_list * list)
-{
-	if(list != NULL)
+	else
 	{
-		glass_info * glass = c_linked_list_get_data(list);
+		queue * glass_list = malloc(sizeof(queue));
 
-		fwrite((void *) glass, glass_info_get_sizeof(), 1, output);
-		controler_write_file(output, c_linked_list_next(list));
+		glass_list->array = NULL;
+		glass_list->size = 0;
+
+		return glass_list;
 	}
 }
+
 
 static bool controler_save_to_file(controler * this, char * address)
 {
-	FILE * output = fopen(address, "w");
-
-	if(output != NULL)
+	if(this->glass_list->array != NULL)
 	{
-		controler_write_file(output, this->queue);
-		fclose(output);
-		return true;
-	}
+		FILE * output = fopen(address, "w");
 
-	return false;
+		if(output != NULL)
+		{
+			fwrite((uint8_t*) this->glass_list->array, this->glass_list->size*sizeof(glass_info), 1, output);
+			fclose(output);
+
+			return true;
+		}
+
+		return false;
+	}
+	else
+	{
+		if(remove (address) == 0)
+			return true;
+		else
+			return false;
+	}
 }
+
 
 static void controler_init(controler * this)
 {
-	if(model_reset_error_status(this->s7lib_ref) == false)
-		printf("%s\n", "reset error status issue");
-	else
-		printf("error reset success\n");
+	printf("Initializing...\n");
 
-	if(model_reset_done_status(this->s7lib_ref) == false)
-		printf("%s\n", "reset done status issue");
+	if(model_write_visu_queue(this->s7lib_ref, (uint8_t*) this->visual_queue) == true)
+		printf("visual queue synchronization success\n");
 	else
-		printf("done flag reset success\n");
+		printf("visual queue synchronization error\n");
 
-	if(controler_synchronize_visu_queue(this) == false)
-			printf("%s\n", "initialize visual controler issue");
-		else
-			printf("visual queue synchronized\n");
+
+	printf("waiting for request\n");
+
+	fflush(stdout);
 }
 
 
-static void controler_enqueue_callback(controler * this)
+static char * controler_time_string(const char * format)
 {
-	if(this->enqueue_state == 0)
-	{
-		if(model_read_cmd_enqueue_status(this->s7lib_ref) == true)
-			this->enqueue_state = 1;
-	}
-	else if(this->enqueue_state == 1)
-	{
-		char current_time[20];
-		glass_info * glass = model_read_glass_info(this->s7lib_ref, 0);
-		printf("%s - enqueue glass -> %s\n", controler_get_current_time_date(current_time), glass_info_get_vehicle_number(glass));
+	char * time_string = (char*) malloc(sizeof(char)*23);
 
-		this->queue = c_linked_list_find_first(c_linked_list_add_as_following(c_linked_list_find_last(this->queue), glass));
-		this->enqueue_state = 2;
-	}
-	else if(this->enqueue_state == 2)
-	{
-		controler_save_to_file(this, QUEUE_FILE_PATH);
-		controler_synchronize_visu_queue(this);
+    time_t my_time;
+    struct tm* time_info;
 
-		model_set_done_status(this->s7lib_ref);
-		this->enqueue_state = 3;
-	}
-	else if(this->enqueue_state == 3)
-	{
-		if(model_read_cmd_enqueue_status(this->s7lib_ref) == false)
-			this->enqueue_state = 0;
-	}
-	else
-	{
-		this->enqueue_state = 0;
-	}
+    time(&my_time);
+    time_info = localtime(&my_time);
+    strftime(time_string, 23, format, time_info);
+
+	return time_string;
 }
 
 
-static void controler_priority_enqueue_callback(controler * this)
+static void controler_log(char * format, ...)
 {
-	if(this->priority_enqueue_state == 0)
-	{
-		if(model_read_cmd_priority_enqueue_status(this->s7lib_ref) == true)
-			this->priority_enqueue_state = 1;
-	}
-	else if(this->priority_enqueue_state == 1)
-	{
-		char current_time[20];
-		glass_info * glass = model_read_glass_info(this->s7lib_ref, 0);
-		printf("%s - priority enqueue glass -> %s\n", controler_get_current_time_date(current_time), glass_info_get_vehicle_number(glass));
+	va_list params;
+	va_start(params, format);
 
-		this->queue = c_linked_list_add_as_previous(this->queue, glass);
-		this->priority_enqueue_state = 2;
-	}
-	else if(this->priority_enqueue_state == 2)
-	{
-		controler_save_to_file(this, QUEUE_FILE_PATH);
-		controler_synchronize_visu_queue(this);
+	char * time_stamp = controler_time_string("%d.%m.%y - %H:%M:%S");
+	printf("%s - ", time_stamp);
+	vprintf(format, params);
+	printf("\n");
 
-		model_set_done_status(this->s7lib_ref);
+	fflush(stdout);
 
-		this->priority_enqueue_state = 3;
-	}
-	else if(this->priority_enqueue_state == 3)
-	{
-		if(model_read_cmd_priority_enqueue_status(this->s7lib_ref) == false)
-			this->priority_enqueue_state = 0;
-	}
-	else
-	{
-		this->priority_enqueue_state = 0;
-	}
+	free(time_stamp);
+	va_end(params);
 }
 
-static void controler_dequeue_callback(controler * this)
+
+static void controler_work_sequence_callback(controler * this)
 {
-	if(this->dequeue_state == 0)
+	if(this->state == 0)
 	{
-		if(model_read_cmd_dequeue_status(this->s7lib_ref) == true)
-			this->dequeue_state = 1;
-	}
-	else if(this->dequeue_state == 1)
-	{
-		if(this->queue != NULL)
+		uint8_t * byte = model_read_cmd_byte(this->s7lib_ref);
+
+		if(byte != NULL)
 		{
-			char current_time[20];
-			printf("%s - dequeue glass -> %s\n", controler_get_current_time_date(current_time), glass_info_get_vehicle_number(c_linked_list_get_data(this->queue)));
+			if(model_read_cmd_reload_visu_status(byte) == true)
+				this->state = 10;
+			else if(model_read_cmd_enqueue_status(byte) == true)
+				this->state = 30;
+			else if(model_read_cmd_priority_enqueue_status(byte) == true)
+				this->state = 40;
+			else if(model_read_cmd_dequeue_status(byte) == true)
+				this->state = 50;
+			else
+				usleep(100000);
 
-			this->queue = c_linked_list_delete_with_release(this->queue, glass_info_finalize);
-			this->dequeue_state = 2;
+			free(byte);
+		}
+	}
+	else if(this->state == 10)
+	{
+		controler_log("synchronizing queue...");
+
+		this->visual_queue =  sync_visu(this->glass_list, this->visual_queue);
+		this->state = 20;
+	}
+	else if(this->state == 20)
+	{
+		 controler_log("reloading visual queue");
+
+		 if(model_write_visu_queue(this->s7lib_ref, (uint8_t *) this->visual_queue) == true)
+			 this->state = 190;
+		 else
+			 this->state = 255;
+	}
+	else if(this->state == 30)
+	{
+		glass_info * glass_record = model_read_glass_info(this->s7lib_ref, GLASS_BYTE);
+
+		if(glass_record != NULL)
+		{
+			controler_log("enqueue glass record: %s", glass_record->vehicle_number);
+
+			this->glass_list = controler_enqueue(this->glass_list, glass_record);
+			this->state = 100;
+
+			free(glass_record);
 		}
 		else
 		{
-			this->dequeue_state = 3;
-			char current_time[20];
-			printf("%s - dequeue request on empty queue", controler_get_current_time_date(current_time));
+			this->state = 255;
+			controler_log("can't load glass record for enqueue!");
 		}
 	}
-	else if(this->dequeue_state == 2)
+	else if(this->state == 40)
 	{
-		controler_save_to_file(this, QUEUE_FILE_PATH);
-		controler_synchronize_visu_queue(this);
+		glass_info * glass_record = model_read_glass_info(this->s7lib_ref, GLASS_BYTE);
 
-		model_set_done_status(this->s7lib_ref);
-		this->dequeue_state = 3;
-	}
-	else if(this->dequeue_state == 3)
-	{
-		if(model_read_cmd_dequeue_status(this->s7lib_ref) == false)
-			this->dequeue_state = 0;
-	}
-	else
-	{
-		this->dequeue_state = 0;
-	}
-}
-
-static void controler_delete_callback(controler * this)
-{
-	if(this->delete_state == 0)
-	{
-		if(model_read_cmd_delete_status(this->s7lib_ref) == true)
-			this->delete_state = 1;
-	}
-	else if(this->delete_state == 1)
-	{
-		glass_info * glass = model_read_glass_info(this->s7lib_ref, 0);
-
-		if(glass != NULL && this->queue != NULL)
+		if(glass_record != NULL)
 		{
-			c_linked_list * glass_for_delete = controler_delete_glass_in_queue(this->queue, glass);
+			controler_log("priority enqueue glass record: %s", glass_record->vehicle_number);
 
-			if (glass_for_delete != NULL)
+			this->glass_list = controler_priority_enqueue(this->glass_list, glass_record);
+			this->state = 100;
+		}
+		else
+		{
+			controler_log("can't load glass record for priority enqueue!");
+			this->state = 255;
+		}
+
+		free(glass_record);
+	}
+	else if(this->state == 50)
+	{
+		if(this->glass_list->array != NULL)
+		{
+			controler_log("dequeue glass record: %s", this->glass_list->array[0].vehicle_number);
+
+			this->glass_list = controler_dequeue(this->glass_list);
+			this->state = 100;
+		}
+		else
+		{
+			controler_log("enqueue error, queue is empty!");
+			this->state = 255;
+		}
+	}
+	else if(this->state == 100)
+	{
+		if(controler_save_to_file(this, QUEUE_FILE_PATH) == true)
+		{
+			controler_log("queue saved to file");
+			this->state = 10;
+		}
+		else
+		{
+			controler_log("error during saving queue to file!");
+			this->state = 255;
+		}
+	}
+	else if(this->state == 190)
+	{
+		controler_log("set done flag");
+
+		if(model_set_done_status(this->s7lib_ref) == true)
+			this->state = 200;
+		else
+			this->state = 255;
+	}
+	else if(this->state == 200)
+	{
+		controler_log("waiting for finish");
+		this->state = 201;
+	}
+	else if(this->state == 201)
+	{
+		uint8_t * byte = model_read_cmd_byte(this->s7lib_ref);
+
+		if(byte != NULL)
+		{
+			if(*byte == 0)
 			{
-				char current_time[20];
-				printf("%s - delete glass -> %s\n", controler_get_current_time_date(current_time), glass_info_get_vehicle_number(glass));
+				controler_log("request finished");
+				model_reset_done_status(this->s7lib_ref);
 
-				this->queue = c_linked_list_find_first(c_linked_list_delete(glass_for_delete));
-				this->delete_state = 2;
+				this->state = 0;
 			}
 			else
 			{
-				this->delete_state = 3;
+				usleep(100000);
 			}
+
+			free(byte);
 		}
-		else
-		{
-			this->delete_state = 3;
-		}
-
-		free(glass);
-	}
-	else if(this->delete_state == 2)
-	{
-		controler_save_to_file(this, QUEUE_FILE_PATH);
-		controler_synchronize_visu_queue(this);
-
-		model_set_done_status(this->s7lib_ref);
-
-		this->delete_state = 4;
-	}
-	else if(this->delete_state == 3)
-	{
-		model_set_error_status(this->s7lib_ref);
-		this->delete_state = 4;
-	}
-	else if(this->delete_state == 4)
-	{
-		if(model_read_cmd_delete_status(this->s7lib_ref) == false)
-			this->delete_state = 0;
 	}
 	else
 	{
-		this->delete_state = 0;
-	}
-}
-
-static c_linked_list * controler_delete_glass_in_queue(c_linked_list * queue, glass_info * glass)
-{
-	if(queue != NULL)
-	{
-		if(strcmp(glass_info_get_vehicle_number(c_linked_list_get_data(queue)), glass_info_get_vehicle_number(glass)) == 0)
-			return queue;
-		else
-			return controler_delete_glass_in_queue(c_linked_list_next(queue), glass);
-	}
-
-	return NULL;
-}
-
-static void controler_reload_visu_callback(controler * this)
-{
-	if(this->reload_visu_state == 0)
-	{
-		if(model_read_cmd_reload_visu_status(this->s7lib_ref) == true)
-			this->reload_visu_state = 1;
-	}
-	else if(this->reload_visu_state == 1)
-	{
-		if(controler_synchronize_visu_queue(this) == true)
-			this->reload_visu_state = 3;
-		else
-			this->reload_visu_state = 2;
-	}
-	else if(this->reload_visu_state == 2)
-	{
+		controler_log("set error flag");
 		model_set_error_status(this->s7lib_ref);
-		this->reload_visu_state = 4;
+		this->state = 0;
 	}
-	else if(this->reload_visu_state == 3)
-	{
-		model_set_done_status(this->s7lib_ref);
-		this->reload_visu_state = 4;
-	}
-	else if(this->reload_visu_state == 4)
-	{
-		if(model_read_cmd_reload_visu_status(this->s7lib_ref) == false)
-			this->reload_visu_state = 0;
-	}
-	else
-	{
-		this->reload_visu_state = 0;
-	}
-}
 
+	this->state_last_cycle = this->state;
+}
 
 
 void controler_handler(controler * this)
@@ -360,83 +339,150 @@ void controler_handler(controler * this)
 
 	while(true)
 	{
-		controler_enqueue_callback(this);
-		controler_priority_enqueue_callback(this);
-		controler_dequeue_callback(this);
-		controler_delete_callback(this);
-		controler_reload_visu_callback(this);
-
-		fflush(stdout);
-		usleep(200000);
+		controler_work_sequence_callback(this);
 	}
 }
+
 
 void controler_finalize(controler * this)
 {
 	s7lib_finalize(this->s7lib_ref);
-	c_linked_list_clear_with_release(this->queue, glass_info_finalize);
+
+	free(this->glass_list->array);
+	free(this->glass_list);
+
 
 	free(this);
 }
 
 
-
-
-
-
-static uint8_t * controler_copy_first_n_glass(c_linked_list * list, uint8_t * visu, int index)
+static void * merge(uint8_t * prefix, uint32_t prefix_size, uint8_t * postfix, uint32_t postfix_size)
 {
-	if(index < VISU_ITEM_NUMBERN)
+	if(prefix != NULL && postfix != NULL)
 	{
-		if(list != NULL)
-		{
-			model_write_glass_info_to_array(visu, c_linked_list_get_data(list), index);
-			return controler_copy_first_n_glass(c_linked_list_next(list), visu, index + 1);
-		}
-		else
-		{
-			uint8_t empty_glass[GLASS_SIZE];
-			memset(empty_glass, 0, GLASS_SIZE);
-			empty_glass[REAR_WINDOW_TYPE_BYTE_INDEX] = REAR_WINDOW_TYPE_LENGTH-2;
+		uint8_t * merge_array = malloc(prefix_size + postfix_size+1);
 
-			model_write_glass_info_to_array(visu, (glass_info*) empty_glass, index);
-
-			return controler_copy_first_n_glass(NULL, visu, index + 1);
+		for(uint32_t i = 0; i < prefix_size+postfix_size; i++)
+		{
+			if(i < (prefix_size))
+				merge_array[i] = prefix[i];
+			else
+				merge_array[i] = postfix[i-prefix_size];
 		}
+
+		return merge_array;
+	}
+	else if(prefix == NULL && postfix != NULL)
+	{
+		uint8_t * merge_array = malloc(postfix_size);
+
+		for(int i = 0; i < postfix_size; i++)
+		{
+			merge_array[i] = postfix[i];
+		}
+
+		return merge_array;
+	}
+	else if(prefix != NULL && postfix == NULL)
+	{
+		uint8_t * merge_array = malloc(prefix_size);
+
+		for(int i = 0; i < prefix_size; i++)
+		{
+			merge_array[i] = prefix[i];
+		}
+
+		return merge_array;
+	}
+	else
+	{
+		return NULL;
+	}
+}
+
+
+static uint8_t * sub(uint8_t * array, uint32_t start, uint32_t end)
+{
+	if(array != NULL && start < end)
+	{
+		uint8_t * sub_array = malloc(end-start);
+
+		for(int i = start; i < end; i++)
+		{
+			sub_array[i-start] = array[i];
+		}
+
+		return sub_array;
+	}
+	else
+	{
+		return NULL;
+	}
+}
+
+
+static queue * controler_enqueue(queue * glass_list, glass_info * glass_record)
+{
+	glass_info * tmp = (glass_info*) merge((uint8_t*) glass_list->array, sizeof(glass_info)*glass_list->size, (uint8_t*) glass_record, sizeof(glass_info));
+
+	free(glass_list->array);
+
+	glass_list->array = tmp;
+	glass_list->size++;
+
+	return glass_list;
+}
+
+
+static queue * controler_priority_enqueue(queue * glass_list, glass_info * glass_record)
+{
+	glass_info * tmp = (glass_info*) merge((uint8_t*) glass_record, sizeof(glass_info), (uint8_t*) glass_list->array, sizeof(glass_info)*glass_list->size);
+
+	free(glass_list->array);
+
+	glass_list->array = tmp;
+	glass_list->size ++;
+
+	return glass_list;
+}
+
+
+static queue * controler_dequeue(queue * glass_list)
+{
+	if(glass_list->size > 0 && glass_list->array != NULL)
+	{
+		glass_info * tmp = (glass_info*) sub((uint8_t*) glass_list->array, sizeof(glass_info), sizeof(glass_info)*(glass_list->size));
+
+		free(glass_list->array);
+
+		glass_list->array = tmp;
+		glass_list->size --;
 	}
 
-	return visu;
+	return glass_list;
 }
 
 
-static bool controler_synchronize_visu_queue(controler * this)
+static visu * sync_visu(queue * glass_list, visu * visual_queue)
 {
-	uint8_t * visu_controler = controler_generate_visu_queue(this);
-	bool ret_val = model_write_visu_queue(this->s7lib_ref, visu_controler, (int16_t) c_linked_list_size(this->queue));
+	s7lib_parser_write_int((uint8_t *) visual_queue, sizeof(glass_info)*10, glass_list->size);
 
-	free(visu_controler);
+	for(int i = 0; i < sizeof(glass_info)*10; i++)
+	{
+		if(i < (sizeof(glass_info)*glass_list->size))
+			((uint8_t*) visual_queue->visual_queue)[i] = ((uint8_t*) glass_list->array)[i];
+		else
+			((uint8_t*) visual_queue->visual_queue)[i] = 0;
 
-	return ret_val;
+		if((i%sizeof(glass_info)) == 0)
+			visual_queue->visual_queue[i/sizeof(glass_info)].rear_window_type[0] = REAR_WINDOW_TYPE_LENGTH-2;
+	}
+
+	return visual_queue;
 }
 
-static uint8_t * controler_generate_visu_queue(controler * this)
-{
-	uint8_t * visu = malloc(sizeof(uint8_t)*GLASS_SIZE*VISU_ITEM_NUMBERN);
-
-	return controler_copy_first_n_glass(this->queue, visu, 0);
-}
 
 
-static char * controler_get_current_time_date(char * date_time)
-{
-	 time_t rawtime;
-	 struct tm * timeinfo;
 
-	 time (&rawtime);
-	 timeinfo = localtime (&rawtime);
 
-	 sprintf(date_time, "%.02d.%.02d.%d-%.02d:%.02d:%.02d", timeinfo->tm_mday, timeinfo->tm_mon, timeinfo->tm_year+1900, timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
-
-	 return date_time;
-}
 

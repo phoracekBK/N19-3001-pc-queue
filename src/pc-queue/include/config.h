@@ -9,6 +9,8 @@
 #define INCLUDE_CONFIG_H_
 
 
+#include "glass_info.h"
+
 #define IP_ADDRESS "192.168.2.1"
 #define RACK 0
 #define SLOT 1
@@ -42,7 +44,7 @@
 #define CMD_BYTE 72
 
 #define GLASS_BYTE 0
-#define GLASS_SIZE 72
+#define GLASS_SIZE sizeof(glass_info)
 
 #define CMD_ENQUEUE_BYTE CMD_BYTE
 #define CMD_ENQUEUE_BIT 0

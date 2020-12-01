@@ -45,7 +45,7 @@ void main_app()
 
 void print_glass_info_addresses()
 {
-	printf("glass info size - %lld\n", glass_info_get_sizeof());
+	printf("glass info size - %lld\n", sizeof(glass_info));
 	printf("JOB_NUMBER_BYTE_INDEX - %d\n", JOB_NUMBER_BYTE_INDEX);
 	printf("CALLOFF_DATE_TIME_BYTE_INDEX - %d\n", CALLOFF_DATE_TIME_BYTE_INDEX);
 	printf("VEHICLE_NUMBER_BYTE_INDEX - %d\n", VEHICLE_NUMBER_BYTE_INDEX);
