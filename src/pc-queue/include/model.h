@@ -23,7 +23,7 @@ bool model_read_cmd_reload_visu_status(uint8_t * byte);
 bool model_read_cmd_enqueue_status(uint8_t * byte);
 bool model_read_cmd_priority_enqueue_status(uint8_t * byte);
 bool model_read_cmd_dequeue_status(uint8_t * byte);
-bool model_read_cmd_delete_status(uint8_t * byte);
+bool model_read_cmd_clean_queue_status(uint8_t * byte);
 char * model_read_vehicle_number(s7lib *, int);
 char * model_read_rear_window_type(s7lib *, int);
 char model_read_vehicle_model(s7lib *, int);
@@ -33,7 +33,7 @@ bool model_write_glass_info(s7lib *, glass_info *, int);
 uint8_t * model_write_glass_info_to_array(uint8_t *, glass_info *, int);
 glass_info * model_read_glass_info_from_array(uint8_t *, int);
 bool model_write_visu_queue(s7lib *, uint8_t *);
-
+bool model_reset_status_byte(s7lib*);
 
 
 #endif

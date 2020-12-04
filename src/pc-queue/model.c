@@ -54,15 +54,21 @@ bool model_read_cmd_dequeue_status(uint8_t * byte)
 	return s7lib_parser_read_bool(byte, 0, CMD_DEQUEUE_BIT);
 }
 
-bool model_read_cmd_delete_status(uint8_t * byte)
+bool model_read_cmd_clean_queue_status(uint8_t * byte)
 {
-	return s7lib_parser_read_bool(byte, 0, CMD_DELETE_BYTE);
+	return s7lib_parser_read_bool(byte, 0, CMD_CLEAN_QUEUE_BIT);
 }
 
 bool model_reset_cmd_byte(s7lib * this)
 {
 	uint8_t byte = 0;
 	return s7lib_write(this, &byte, CMD_BYTE, 1);
+}
+
+bool model_reset_status_byte(s7lib * this)
+{
+	uint8_t byte = 0;
+	return s7lib_write(this, &byte, STATUS_BYTE, 1);
 }
 
 bool model_write_queue_size(s7lib * this, int16_t queue_size)

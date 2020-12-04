@@ -14,7 +14,7 @@
 #define IP_ADDRESS "192.168.2.1"
 #define RACK 0
 #define SLOT 1
-#define DB_INDEX 5
+#define DB_INDEX 1//5
 
 #define QUEUE_FILE_PATH "queue.dat"
 
@@ -42,6 +42,7 @@
 
 
 #define CMD_BYTE 72
+#define STATUS_BYTE 796
 
 #define GLASS_BYTE 0
 #define GLASS_SIZE sizeof(glass_info)
@@ -55,8 +56,8 @@
 #define CMD_DEQUEUE_BYTE CMD_BYTE
 #define CMD_DEQUEUE_BIT 2
 
-#define CMD_DELETE_BYTE CMD_BYTE
-#define CMD_DELETE_BIT 3
+#define CMD_CLEAN_QUEUE_BYTE CMD_BYTE
+#define CMD_CLEAN_QUEUE_BIT 3
 
 #define CMD_RELOAD_VISU_BYTE CMD_BYTE
 #define CMD_RELOAD_VISU_BIT 4
@@ -67,13 +68,13 @@
 
 #define VISU_QUEUE_SIZE_BYTE VISU_BYTE+VISU_SIZE
 
-#define DONE_BYTE 796
+#define DONE_BYTE STATUS_BYTE
 #define DONE_BIT 0
 
-#define ERROR_BYTE 796
+#define ERROR_BYTE STATUS_BYTE
 #define ERROR_BIT 1
 
-#define LIVE_FLAG_BYTE 796
+#define LIVE_FLAG_BYTE STATUS_BYTE
 #define LIVE_FLAG_BIT 2
 
 

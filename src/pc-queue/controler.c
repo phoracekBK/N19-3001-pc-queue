@@ -40,7 +40,7 @@ static visu * sync_visu(queue * glass_list, visu * visual_queue);
 static queue * controler_priority_enqueue(queue * glass_list, glass_info * glass_record);
 static queue * controler_dequeue(queue * glass_list);
 static void controler_work_sequence_callback(controler *);
-
+static queue * controler_clean_queue(queue * glass_list);
 
 
 
@@ -199,6 +199,8 @@ static void controler_work_sequence_callback(controler * this)
 				this->state = 40;
 			else if(model_read_cmd_dequeue_status(byte) == true)
 				this->state = 50;
+			else if (model_read_cmd_clean_queue_status(byte) == true)
+				this->state = 60;
 			else
 				usleep(100000);
 
@@ -274,6 +276,20 @@ static void controler_work_sequence_callback(controler * this)
 			this->state = 255;
 		}
 	}
+	else if(this->state == 60)
+	{
+		if(this->glass_list->array != NULL)
+		{
+			controler_log("queue cleanup");
+			this->glass_list =  controler_clean_queue(this->glass_list);
+			this->state = 100;
+		}
+		else
+		{
+			controler_log("can't cleanup, queue already empty!");
+			this->state = 255;
+		}
+	}
 	else if(this->state == 100)
 	{
 		if(controler_save_to_file(this, QUEUE_FILE_PATH) == true)
@@ -310,7 +326,7 @@ static void controler_work_sequence_callback(controler * this)
 			if(*byte == 0)
 			{
 				controler_log("request finished");
-				model_reset_done_status(this->s7lib_ref);
+				model_reset_status_byte(this->s7lib_ref);
 
 				this->state = 0;
 			}
@@ -326,7 +342,7 @@ static void controler_work_sequence_callback(controler * this)
 	{
 		controler_log("set error flag");
 		model_set_error_status(this->s7lib_ref);
-		this->state = 0;
+		this->state = 200;
 	}
 
 	this->state_last_cycle = this->state;
@@ -420,6 +436,19 @@ static uint8_t * sub(uint8_t * array, uint32_t start, uint32_t end)
 	}
 }
 
+
+static queue * controler_clean_queue(queue * glass_list)
+{
+	if(glass_list->array != NULL)
+	{
+		free(glass_list->array);
+		glass_list->array = NULL;
+	}
+
+	glass_list->size = 0;
+
+	return glass_list;
+}
 
 static queue * controler_enqueue(queue * glass_list, glass_info * glass_record)
 {
