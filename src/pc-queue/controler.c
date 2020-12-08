@@ -51,6 +51,7 @@ controler * controler_new(char * ip_address, int rack, int slot, int db_index)
 	this->s7lib_ref = s7lib_new(ip_address, rack, slot, db_index);
 
 	this->glass_list = controler_load_from_file(this, QUEUE_FILE_PATH);
+
 	this->visual_queue = malloc(sizeof(visu));
 	this->visual_queue = sync_visu(this->glass_list, this->visual_queue);
 
@@ -165,11 +166,23 @@ static char * controler_time_string(const char * format)
 	return time_string;
 }
 
+char * controler_generate_log_name(char * csv_path, char * csv_name)
+{
+	time_t current_time;
+	time(&current_time);
+  	struct tm tm = * localtime(&current_time);
+	return c_string_format("%s/%s-%d-%02d-%02d.log", csv_path, csv_name, tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
+}
 
 static void controler_log(char * format, ...)
 {
 	va_list params;
 	va_start(params, format);
+
+	char * log_file_name = controler_generate_log_name("log", "debug-log");
+
+	FILE * log_file = fopen(log_file_name, "a");
+
 
 	char * time_stamp = controler_time_string("%d.%m.%y - %H:%M:%S");
 	printf("%s - ", time_stamp);
@@ -178,7 +191,22 @@ static void controler_log(char * format, ...)
 
 	fflush(stdout);
 
+
+	if(log_file != NULL)
+	{
+		fprintf(log_file, "%s - ", time_stamp);
+		vfprintf(log_file, format, params);
+		fprintf(log_file, "\n");
+		fflush(log_file);
+		fclose(log_file);
+	}
+
+
+	free(log_file_name);
+
+
 	free(time_stamp);
+
 	va_end(params);
 }
 
@@ -364,9 +392,12 @@ void controler_finalize(controler * this)
 {
 	s7lib_finalize(this->s7lib_ref);
 
-	free(this->glass_list->array);
+	if(this->glass_list != NULL)
+		free(this->glass_list->array);
+
 	free(this->glass_list);
 
+	free(this->visual_queue->visual_queue);
 
 	free(this);
 }
