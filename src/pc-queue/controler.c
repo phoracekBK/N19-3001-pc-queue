@@ -145,7 +145,6 @@ static void controler_init(controler * this)
 	else
 		printf("visual queue synchronization error\n");
 
-
 	printf("waiting for request\n");
 
 	fflush(stdout);
@@ -183,14 +182,12 @@ static void controler_log(char * format, ...)
 
 	FILE * log_file = fopen(log_file_name, "a");
 
-
 	char * time_stamp = controler_time_string("%d.%m.%y - %H:%M:%S");
 	printf("%s - ", time_stamp);
 	vprintf(format, params);
 	printf("\n");
 
 	fflush(stdout);
-
 
 	if(log_file != NULL)
 	{
@@ -201,10 +198,7 @@ static void controler_log(char * format, ...)
 		fclose(log_file);
 	}
 
-
 	free(log_file_name);
-
-
 	free(time_stamp);
 
 	va_end(params);
