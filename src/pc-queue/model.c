@@ -28,7 +28,6 @@ bool model_reset_done_status(s7lib * this)
 	return s7lib_write_bool(this, DONE_BYTE, DONE_BIT, false);
 }
 
-
 uint8_t * model_read_cmd_byte(s7lib * this)
 {
 	return s7lib_read(this, CMD_BYTE, 1);
