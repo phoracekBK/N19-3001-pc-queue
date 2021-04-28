@@ -1,9 +1,9 @@
-# PC-QUEUE
+# csv_maker
 
-Application for buffering glass records receaved from MES system used for project N19-3001
+Application for buffering glass records receaved from MES system used for project N19-3001. Whole application is programmed in plain C programming language 
 
 # Dependecies
-There is two main dependecies:
+There is several main dependecies:
 * aclib - library of dynamic data structures, mainly string, linked list, array list, ...
 * s7lib - library based on snap7 library, creating high-level interface for comunication throught S7 library of the Siemens PLCs
 * POSIX interface
@@ -11,7 +11,7 @@ There is two main dependecies:
 * make
 * pkg-config
 
-The best way for set up enviroment on Windows platform is MSYS2 system.
+The best way for set up build enviroment on Windows platform is using MSYS2 system.
 
 # Compilation/Instalation
 Instalation is prety easy, if the enviroment prepared (see previous chapter), then just run foloving command:
